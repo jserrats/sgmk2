@@ -1,6 +1,7 @@
 #include <AccelStepper.h>
 #include <MultiStepper.h>
 #include <ArduinoOTA.h>
+#include <NonBlockingRtttl.h>
 
 #include <WiFi.h>
 #include "AsyncUDP.h"
@@ -8,6 +9,7 @@
 
 #define motorInterfaceType 1
 
+#define BUZZER 14
 #define ENDSTOP 34 // other to ground
 #define FLYWHEELS 32
 #define LASER 33
@@ -23,6 +25,8 @@ AccelStepper stepperPusher(motorInterfaceType, 23, 22);
 AccelStepper stepperTilt(motorInterfaceType, 21, 19);
 AccelStepper stepperPan(motorInterfaceType, 18, 5);
 
+const char *bootup = "bootup:d=16,o=6,b=95:32d,32d#,32e,32f,32f#,32g,g";
+
 AsyncUDP udp;
 
 void setup(void)
@@ -33,7 +37,14 @@ void setup(void)
   pinMode(ENDSTOP, INPUT_PULLDOWN);
   pinMode(FLYWHEELS, OUTPUT);
   pinMode(LASER, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
 
+  rtttl::begin(BUZZER, bootup);
+  while (!rtttl::done())
+  {
+    rtttl::play();
+  }
+  
   // stepper initialization
   Serial.println("Setting up steppers...");
   stepperPusher.setMaxSpeed(1000);
@@ -156,10 +167,6 @@ void setup(void)
           digitalWrite(LASER, LOW);
         }
       } });
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(100);
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(100);
     digitalWrite(LED_BUILTIN, HIGH);
   }
 
