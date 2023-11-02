@@ -9,18 +9,22 @@
 
 #define motorInterfaceType 1
 
-#define BUZZER 14
-#define ENDSTOP 34 // other to ground
-#define FLYWHEELS 32
-#define LASER 33
+#define BUZZER_PIN 14
+#define ENDSTOP_PIN 34 // other to ground
+#define FLYWHEELS_PIN 32
+#define LASER_PIN  33
 
 #define TILTMIN 0
 #define TILTMAX 480
 
-int flywheelState = LOW;
-int laserState = LOW;
+#define SHOOT_ORDER 0
+#define TILT_ABS_ORDER 1
+#define TILT_REL_ORDER 2
+#define PAN_ORDER 3
+#define FLYWHEELS_ORDER 4
+#define LASER_ORDER 5
 
-// Creates an instance   step  -- dir
+// step  -- dir
 AccelStepper stepperPusher(motorInterfaceType, 23, 22);
 AccelStepper stepperTilt(motorInterfaceType, 21, 19);
 AccelStepper stepperPan(motorInterfaceType, 18, 5);
@@ -34,12 +38,12 @@ void setup(void)
   Serial.begin(115200);
   Serial.println("\n[+] SGMK2 [+]");
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(ENDSTOP, INPUT_PULLDOWN);
-  pinMode(FLYWHEELS, OUTPUT);
-  pinMode(LASER, OUTPUT);
-  pinMode(BUZZER, OUTPUT);
+  pinMode(ENDSTOP_PIN, INPUT_PULLDOWN);
+  pinMode(FLYWHEELS_PIN, OUTPUT);
+  pinMode(LASER_PIN , OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
 
-  rtttl::begin(BUZZER, bootup);
+  rtttl::begin(BUZZER_PIN, bootup);
   while (!rtttl::done())
   {
     rtttl::play();
@@ -109,21 +113,21 @@ void setup(void)
       uint8_t parameter1 = *(packet.data() + 2);
       int16_t parameter = ((parameter0 << 8) | parameter1 )- 32768;
 
-      if (order == 0) // shoot
+      if (order == SHOOT_ORDER) // shoot
       {
         stepperPusher.move(-400);
         Serial.print("order 0: ");
         Serial.println(parameter);
       }
       // tilt absolute
-      else if (order == 1 && (parameter >= TILTMIN) && (parameter <= TILTMAX)) 
+      else if (order == TILT_ABS_ORDER && (parameter >= TILTMIN) && (parameter <= TILTMAX)) 
       {
         stepperTilt.moveTo(parameter);
         Serial.print("order 1: ");
         Serial.println(parameter);
       }
       // tilt relative
-      else if (order == 2)
+      else if (order == TILT_REL_ORDER)
       {
         if(stepperTilt.currentPosition() + parameter < TILTMIN){
           stepperTilt.moveTo(TILTMIN);
@@ -137,34 +141,34 @@ void setup(void)
         Serial.print("order 1: ");
         Serial.println(parameter);
       }
-      else if (order == 3) // pan
+      else if (order == PAN_ORDER) // pan
       {
         stepperPan.move(parameter);
         Serial.print("order 2: ");
         Serial.println(parameter);
       }
-      else if (order == 4) // flywheels
+      else if (order == FLYWHEELS_ORDER) // FLYWHEELS_PIN
       {
         if (parameter == 255)
         {
-          // analogWrite(FLYWHEELS, 120);
-          digitalWrite(FLYWHEELS, HIGH);
+          // analogWrite(FLYWHEELS_PIN, 120);
+          digitalWrite(FLYWHEELS_PIN, HIGH);
 
         }
         else
         {
-          digitalWrite(FLYWHEELS, LOW);
+          digitalWrite(FLYWHEELS_PIN, LOW);
         }
       }
-      else if (order == 5) // laser
+      else if (order == LASER_ORDER) // LASER_PIN 
       {
         if (parameter == 255)
         {
-          digitalWrite(LASER, HIGH);
+          digitalWrite(LASER_PIN , HIGH);
         }
         else
         {
-          digitalWrite(LASER, LOW);
+          digitalWrite(LASER_PIN , LOW);
         }
       } });
     digitalWrite(LED_BUILTIN, HIGH);
@@ -173,7 +177,7 @@ void setup(void)
   // tilt stepper calibration
   stepperTilt.move(-600);
   Serial.println("Calibrating Tilt offset...");
-  while (digitalRead(ENDSTOP) == 0)
+  while (digitalRead(ENDSTOP_PIN) == 0)
   {
     stepperTilt.run();
   }
