@@ -12,10 +12,11 @@
 #define BUZZER_PIN 14
 #define ENDSTOP_PIN 34 // other to ground
 #define FLYWHEELS_PIN 32
-#define LASER_PIN  33
+#define LASER_PIN 33
 
 #define TILTMIN 0
 #define TILTMAX 480
+#define TILT_CALIBRATION false
 
 #define SHOOT_ORDER 0
 #define TILT_ABS_ORDER 1
@@ -25,9 +26,9 @@
 #define LASER_ORDER 5
 
 // step  -- dir
-AccelStepper stepperPusher(motorInterfaceType, 23, 22);
-AccelStepper stepperTilt(motorInterfaceType, 21, 19);
-AccelStepper stepperPan(motorInterfaceType, 18, 5);
+AccelStepper stepperPusher(motorInterfaceType, 19, 18);
+AccelStepper stepperTilt(motorInterfaceType, 5, 17);
+AccelStepper stepperPan(motorInterfaceType, 16, 4);
 
 const char *bootup = "bootup:d=16,o=6,b=95:32d,32d#,32e,32f,32f#,32g,g";
 
@@ -40,7 +41,7 @@ void setup(void)
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(ENDSTOP_PIN, INPUT_PULLDOWN);
   pinMode(FLYWHEELS_PIN, OUTPUT);
-  pinMode(LASER_PIN , OUTPUT);
+  pinMode(LASER_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
 
   rtttl::begin(BUZZER_PIN, bootup);
@@ -48,7 +49,6 @@ void setup(void)
   {
     rtttl::play();
   }
-  
   // stepper initialization
   Serial.println("Setting up steppers...");
   stepperPusher.setMaxSpeed(1000);
@@ -175,16 +175,19 @@ void setup(void)
   }
 
   // tilt stepper calibration
-  stepperTilt.move(-600);
-  Serial.println("Calibrating Tilt offset...");
-  while (digitalRead(ENDSTOP_PIN) == 0)
+  if (TILT_CALIBRATION == true)
   {
-    stepperTilt.run();
+    stepperTilt.move(-600);
+    Serial.println("Calibrating Tilt offset...");
+    while (digitalRead(ENDSTOP_PIN) == 0)
+    {
+      stepperTilt.run();
+    }
+    stepperTilt.stop();
+    stepperTilt.setCurrentPosition(0);
+    stepperTilt.moveTo(250);
+    Serial.println("Tilt offset calibrated");
   }
-  stepperTilt.stop();
-  stepperTilt.setCurrentPosition(0);
-  stepperTilt.moveTo(250);
-  Serial.println("Tilt offset calibrated");
 
   Serial.println("\nAll systems operational");
 }
