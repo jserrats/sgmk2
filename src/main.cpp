@@ -19,14 +19,7 @@
 #define TILTMIN -120
 #define TILTMAX 230
 #define TILT_CALIBRATION true
-
-#define SHOOT_ORDER 0
-#define TILT_ABS_ORDER 1
-#define TILT_REL_ORDER 2
-#define PAN_ORDER 3
-#define FLYWHEELS_ORDER 4
-#define LASER_ORDER 5
-#define ROF_ORDER 6
+#define STEPS_PER_SHOT 200
 
 EspMQTTClient client(
     ssid, password,
@@ -38,13 +31,26 @@ EspMQTTClient client(
 const char *bootup = "bootup:d=16,o=6,b=95:32d,32d#,32e,32f,32f#,32g,g";
 const char *ready = "ready:d=16,o=6,b=95:g,f#";
 
-// AccelStepper stepperPusher(motorInterfaceType, 19, 18);
+AccelStepper stepperPusher(motorInterfaceType, 19, 18);
 AccelStepper stepperTilt(motorInterfaceType, 5, 17);
 AccelStepper stepperPan(motorInterfaceType, 16, 4);
+
+bool shooting = false;
+
+void setRateOfFire(int rof)
+{
+  int stepsPerSecond = rof * STEPS_PER_SHOT / 60;
+  if (stepsPerSecond > 950)
+  {
+    stepsPerSecond = 950;
+  }
+  stepperPusher.setSpeed(-1 * stepsPerSecond);
+}
 
 void setup()
 {
   Serial.begin(115200);
+  Serial.println("\n[+] SGMK2 [+]");
 
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(ENDSTOP_PIN, INPUT_PULLDOWN);
@@ -56,7 +62,8 @@ void setup()
   {
     rtttl::play();
   }
-
+  stepperPusher.setMaxSpeed(1500);
+  setRateOfFire(60);
   stepperPan.setMaxSpeed(1000);
   stepperPan.setAcceleration(200);
   stepperPan.setSpeed(200);
@@ -90,13 +97,24 @@ void setup()
 
 void onConnectionEstablished()
 {
-  client.subscribe("sgmk2/pan", [](const String &payload)
+  client.subscribe("sgmk2/pan/relative", [](const String &payload)
                    { int16_t parameter = payload.toInt();
                    stepperPan.move(parameter); });
   client.subscribe("sgmk2/tilt/absolute", [](const String &payload)
                    { int16_t parameter = payload.toInt();
                    if((parameter >= TILTMIN) && (parameter <= TILTMAX)){
                       stepperTilt.moveTo(parameter);
+                   } });
+  client.subscribe("sgmk2/tilt/relative", [](const String &payload)
+                   { int16_t parameter = payload.toInt();
+                   if(stepperTilt.currentPosition() + parameter < TILTMIN){
+                      stepperTilt.moveTo(TILTMIN);
+                    }
+                    else if (stepperTilt.currentPosition() + parameter > TILTMAX) {
+                      stepperTilt.moveTo(TILTMAX);
+                    }
+                    else {
+                      stepperTilt.move(parameter);
                    } });
   client.subscribe("sgmk2/flywheel", [](const String &payload)
                    { 
@@ -105,13 +123,34 @@ void onConnectionEstablished()
                     }else{
                       digitalWrite(FLYWHEELS_PIN, LOW);
                     } });
+  client.subscribe("sgmk2/shoot", [](const String &payload)
+                   { 
+                    if(payload == "on"){
+                     shooting = true;
+                    }else{
+                     shooting = false;
+                   } });
+  client.subscribe("sgmk2/rof", [](const String &payload)
+                   {
+                     int16_t parameter = payload.toInt();
+                     setRateOfFire(parameter); });
   client.publish("sgmk2/status", "online", true); // You can activate the retain flag by setting the third parameter to true
-
+  client.publish("sgmk2/tilt/absolute", "0");
   digitalWrite(LED_BUILTIN, HIGH);
 }
 
+int stepsShot = 0;
+
 void loop()
 {
+  if (shooting || stepsShot % STEPS_PER_SHOT != 0)
+  {
+    if (stepperPusher.runSpeed())
+    {
+      stepsShot++;
+    };
+  }
+
   stepperTilt.run();
   stepperPan.run();
   client.loop();
