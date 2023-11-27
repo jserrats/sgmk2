@@ -122,13 +122,21 @@ void onConnectionEstablished()
                       digitalWrite(FLYWHEELS_PIN, HIGH);
                     }else{
                       digitalWrite(FLYWHEELS_PIN, LOW);
+                      shooting = false;
                     } });
   client.subscribe("sgmk2/shoot", [](const String &payload)
                    { 
-                    if(payload == "on"){
+                    if(payload == "on" && digitalRead(FLYWHEELS_PIN)){
                      shooting = true;
                     }else{
                      shooting = false;
+                   } });
+  client.subscribe("sgmk2/laser", [](const String &payload)
+                   { 
+                    if(payload == "on"){
+                     digitalWrite(LASER_PIN, HIGH);
+                    }else{
+                     digitalWrite(LASER_PIN, LOW);
                    } });
   client.subscribe("sgmk2/rof", [](const String &payload)
                    {
