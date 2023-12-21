@@ -30,6 +30,7 @@ EspMQTTClient client(
 
 const char *bootup = "bootup:d=16,o=6,b=95:32d,32d#,32e,32f,32f#,32g,g";
 const char *ready = "ready:d=16,o=6,b=95:g,f#";
+const char *autoaim = "ready:d=16,o=6,b=95:f#,g";
 
 AccelStepper stepperPusher(motorInterfaceType, 19, 18);
 AccelStepper stepperTilt(motorInterfaceType, 5, 17);
@@ -142,6 +143,9 @@ void onConnectionEstablished()
                    {
                      int16_t parameter = payload.toInt();
                      setRateOfFire(parameter); });
+  client.subscribe("sgmk2/alert", [](const String &payload)
+                   { rtttl::begin(BUZZER_PIN, ready); });
+                   
   client.publish("sgmk2/status", "online", true); // You can activate the retain flag by setting the third parameter to true
   client.publish("sgmk2/tilt/absolute", "0");
   digitalWrite(LED_BUILTIN, HIGH);
@@ -158,7 +162,7 @@ void loop()
       stepsShot++;
     };
   }
-
+  rtttl::play();
   stepperTilt.run();
   stepperPan.run();
   client.loop();
