@@ -35,11 +35,14 @@ Single translation unit, `src/main.cpp`, in classic Arduino shape:
 
 - **`setup()`** — pin config, plays the `bootup` RTTTL tune, configures stepper speeds/accelerations, then homes tilt against the endstop (`TILT_CALIBRATION`): drive tilt negative until `ENDSTOP_PIN` reads high, then `setCurrentPosition(0)`. All tilt positions afterwards are steps relative to that home. Plays `ready` when done.
 - **`onConnectionEstablished()`** — the EspMQTTClient callback where every subscription is registered. This is the whole command surface; add new commands here.
-- **`loop()`** — must stay non-blocking. It pumps `stepperTilt.run()`, `stepperPan.run()`, `rtttl::play()`, and `client.loop()` every iteration. Anything that busy-waits here stalls MQTT, OTA, and motion at once. (`setup()` deliberately busy-waits on `rtttl::done()`, which is fine only because nothing else is running yet.)
+- **`loop()`** — must stay non-blocking. It pumps `updateAxis()` for tilt and pan, `rtttl::play()`, and `client.loop()` every iteration. Anything that busy-waits here stalls MQTT, OTA, and motion at once. (`setup()` deliberately busy-waits on `rtttl::done()`, which is fine only because nothing else is running yet.)
 
 Key invariants:
 
-- **Tilt is clamped to `TILTMIN`..`TILTMAX`** in both the absolute and relative handlers; pan is unbounded (continuous rotation). Keep any new tilt path clamped.
+- **Each of pan and tilt is in one of two modes.** *Position mode* is AccelStepper's planner (`move`/`moveTo`), used by the D-pad nudges and `tilt/absolute`. *Velocity mode* is how the joystick and autoaim drive: `sgmk2/*/velocity` sets a target speed, `updateAxis()` ramps `currentVel` toward it at `PAN_ACCEL`/`TILT_ACCEL` and steps with `runSpeed()`. Streaming position deltas at joystick rate does **not** work — the target outruns the achievable speed and the axis lags then overshoots. Switch modes via `commandVelocity()` / `commandPosition()`; never call `move()` without `commandPosition()` first, or the stale velocity ramp fights the planner.
+- **Velocity mode fails safe.** No `*/velocity` message for `VEL_TIMEOUT_MS` (500 ms) ramps that axis to a stop. Pan travel is unbounded, so a dropped packet or a closed browser must never leave the turret running. Any new streaming command path needs the same treatment.
+- **Tilt is clamped to `TILTMIN`..`TILTMAX`** in the absolute and relative handlers, and `tiltLimitVelocity()` brakes velocity mode across `TILT_SLOW_BAND` steps before each limit. Pan is unbounded (continuous rotation). Keep any new tilt path clamped.
+- **Homing runs at `HOMING_SPEED`**, not the raised `TILT_ACCEL`/max speed, so the carriage doesn't slam the endstop. There is no encoder: a skipped tilt step silently corrupts the homed origin and therefore the limits, recoverable only by rebooting to re-home. Tune speeds upward from conservative values.
 - **Firing is step-counted, not time-based.** `STEPS_PER_SHOT` steps of `stepperPusher` = one dart. `loop()` keeps stepping past a `shooting = false` until `stepsShot % STEPS_PER_SHOT == 0`, so a stop request always completes the dart in flight instead of jamming mid-cycle.
 - **Rate of fire is a speed, not a delay.** `setRateOfFire(rpm)` converts rounds/min → steps/sec via `STEPS_PER_SHOT` and caps at 950 steps/s (motor limit).
 - **Flywheels gate shooting.** `sgmk2/shoot` is ignored unless `FLYWHEELS_PIN` is already high, and turning flywheels off force-clears `shooting`.
@@ -53,6 +56,8 @@ Broker `mqtt.jserrats.xyz:1883`, client id `sgmk2`. Retained LWT on `sgmk2/statu
 | `sgmk2/pan/relative` | int steps | relative pan, unbounded |
 | `sgmk2/tilt/absolute` | int steps | absolute tilt, ignored outside `TILTMIN`..`TILTMAX` |
 | `sgmk2/tilt/relative` | int steps | relative tilt, clamped to the limits |
+| `sgmk2/pan/velocity` | signed steps/s | target pan speed; ramped, stops after `VEL_TIMEOUT_MS` |
+| `sgmk2/tilt/velocity` | signed steps/s | target tilt speed; ramped, brakes into the tilt limits |
 | `sgmk2/flywheel` | `on` / anything | spin up / spin down (also stops shooting) |
 | `sgmk2/shoot` | `on` / anything | start / stop firing (needs flywheels on) |
 | `sgmk2/laser` | `on` / anything | laser pointer |
