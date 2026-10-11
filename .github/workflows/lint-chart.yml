@@ -1,0 +1,35 @@
+name: Lint Helm chart
+
+on:
+  push:
+    branches: [main]
+    paths: ["chart/**", ".github/workflows/lint-chart.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["chart/**", ".github/workflows/lint-chart.yml"]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint with default values
+        run: helm lint --strict chart
+
+      - name: Lint with every optional block enabled
+        run: helm lint --strict chart -f chart/ci/all-features-values.yaml
+
+      # Render both ways so template errors in the optional branches fail the build.
+      - name: Render templates
+        run: |
+          helm template ci chart > /dev/null
+          helm template ci chart -f chart/ci/all-features-values.yaml

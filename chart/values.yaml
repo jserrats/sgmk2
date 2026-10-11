@@ -1,0 +1,100 @@
+image:
+  repository: ghcr.io/jserrats/sgmk2/cv
+  # Defaults to the chart appVersion ("latest"). Pin sha-<commit> in the ArgoCD
+  # Application: ArgoCD only redeploys when the rendered manifests change, so it never
+  # notices `latest` moving to a new image.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The image is public; only needed if that changes.
+#   - name: ghcr
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+mqtt:
+  broker: mqtt.jserrats.xyz
+  port: 1883
+  # Fixed per controller: a second client with the same id kicks the first off the
+  # broker, which is why the deployment is pinned to one replica.
+  clientId: sgmk2-controller
+
+camera:
+  # The ESPHome camera's MJPEG stream.
+  url: http://sgmk2-cam.iot:8080/
+
+service:
+  type: ClusterIP
+  port: 5000
+
+# Off by default: the UI has no authentication and can fire the turret.
+ingress:
+  enabled: false
+  className: ""
+  # The UI uses socket.io (websockets) and an MJPEG stream on /video_feed, both long-lived.
+  # With ingress-nginx, something like:
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  #   nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  annotations: {}
+  hosts:
+    - host: sgmk2-cv.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: sgmk2-cv-tls
+  #    hosts:
+  #      - sgmk2-cv.local
+
+# The camera is on a LAN name (sgmk2-cam.iot). Where cluster DNS forwards to a resolver
+# that knows it (as on ganymede, whose CoreDNS forwards to the node's), nothing is
+# needed. Otherwise map it here:
+#   - ip: 192.168.1.50
+#     hostnames:
+#       - sgmk2-cam.iot
+hostAliases: []
+# Or point the pod at the LAN resolver, e.g. dnsPolicy: "None" plus dnsConfig.nameservers.
+dnsPolicy: ""
+dnsConfig: {}
+# Escape hatch: share the node's network and DNS. Set dnsPolicy: ClusterFirstWithHostNet
+# alongside it if the pod still needs to resolve cluster services.
+hostNetwork: false
+
+probes:
+  # TCP check on the http port: cheap, and doesn't render a page or touch the camera.
+  enabled: true
+
+# Face detection on every frame is the main cost, and only while someone watches.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# The app stops the turret and exits on SIGTERM, well within this.
+terminationGracePeriodSeconds: 10
+
+podAnnotations: {}
+podLabels: {}
+
+# The image runs as uid 1000.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

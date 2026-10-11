@@ -1,0 +1,56 @@
+# Exercises every optional block; used by CI to render the chart.
+imagePullSecrets:
+  - name: ghcr
+image:
+  tag: sha-0000000
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  hosts:
+    - host: example.test
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: example-tls
+      hosts:
+        - example.test
+hostAliases:
+  - ip: 192.0.2.10
+    hostnames:
+      - sgmk2-cam.iot
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+dnsConfig:
+  options:
+    - name: ndots
+      value: "2"
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+podAnnotations:
+  a: b
+podLabels:
+  c: d
+podSecurityContext:
+  fsGroup: 1000
+securityContext:
+  readOnlyRootFilesystem: true
+mqtt:
+  broker: broker.example.test
+  port: 8883
+  clientId: sgmk2-controller-ci
+camera:
+  url: http://192.0.2.20:8080/
+terminationGracePeriodSeconds: 5
+nodeSelector:
+  kubernetes.io/arch: amd64
+tolerations:
+  - key: x
+    operator: Exists
+affinity:
+  nodeAffinity: {}

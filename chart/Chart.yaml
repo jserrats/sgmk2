@@ -1,0 +1,9 @@
+# The SGMK2 web controller (cv/ in this repo), for Kubernetes. Nothing is
+# packaged or published: deploy it straight from this directory, e.g. as an
+# ArgoCD Application with `path: chart` (see README.md).
+apiVersion: v2
+name: sgmk2-cv
+description: Computer-vision controller and web UI for the SGMK2 turret
+type: application
+version: 0.1.0
+appVersion: "latest"

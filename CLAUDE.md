@@ -4,34 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-SGMK2 ("Sentry Gun Mk2") is a PlatformIO/Arduino firmware for an ESP32 that drives a motorized foam-dart sentry turret: three stepper motors (pan, tilt, dart pusher), flywheel motor, laser pointer, and a piezo buzzer. It is controlled entirely over MQTT — there is no local UI. Vision/targeting lives outside this repo: the camera runs ESPHome (config kept in a separate `esphome` project), and whatever does the aiming publishes MQTT commands to this device.
+SGMK2 ("Sentry Gun Mk2") is a motorized foam-dart sentry turret: three stepper motors (pan, tilt, dart pusher), flywheel motor, laser pointer, and a piezo buzzer, on an ESP32 controlled entirely over MQTT. The repo holds three parts:
 
-## Build / upload
+- `firmware/` — the PlatformIO/Arduino firmware for the ESP32. No local UI.
+- `cv/` — the web controller (Flask + socket.io + OpenCV): serves the camera feed, reads a gamepad through the browser, does face-detection autoaim, and publishes the MQTT commands.
+- `chart/` — Helm chart deploying `cv/` to Kubernetes (ArgoCD on ganymede, `path: chart`).
 
-`pio` is not on `PATH`; use `~/.platformio/penv/bin/pio`.
+The camera itself runs ESPHome; its config is kept in the separate `esphome` project.
+
+## Firmware build / upload
+
+`pio` is not on `PATH`; use `~/.platformio/penv/bin/pio`. The PlatformIO project is `firmware/`: pass `-d firmware` from the repo root (or `cd firmware`).
 
 ```sh
-~/.platformio/penv/bin/pio run                 # build
-~/.platformio/penv/bin/pio run -t upload       # upload (OTA, see below)
-~/.platformio/penv/bin/pio device monitor      # serial monitor @ 115200
+~/.platformio/penv/bin/pio run -d firmware                # build
+~/.platformio/penv/bin/pio run -d firmware -t upload      # upload (OTA, see below)
+~/.platformio/penv/bin/pio device monitor -d firmware     # serial monitor @ 115200
 ```
 
-Upload is **OTA only** (`upload_protocol = espota`, `upload_port = sgmk2.iot`) — you must be on the same LAN as the turret, and it must be powered and connected. To flash over USB instead, temporarily override `upload_protocol`/`upload_port` (e.g. `pio run -t upload --upload-port /dev/cu.usbserial-*`) rather than committing a change to `platformio.ini`.
+Upload is **OTA only** (`upload_protocol = espota`, `upload_port = sgmk2.iot`) — you must be on the same LAN as the turret, and it must be powered and connected. To flash over USB instead, temporarily override `upload_protocol`/`upload_port` (e.g. `pio run -d firmware -t upload --upload-port /dev/cu.usbserial-*`) rather than committing a change to `platformio.ini`.
 
-There are no tests (`test/` holds only the PlatformIO placeholder README).
+There are no tests (`firmware/test/` holds only the PlatformIO placeholder README).
 
 ## secrets.h
 
-`src/main.cpp` includes `secrets.h`, which is gitignored and **not present in a fresh clone** — the build fails until you create it (in `include/` or `src/`):
+`firmware/src/main.cpp` includes `secrets.h`, which is gitignored and **not present in a fresh clone** — the build fails until you create it as `firmware/include/secrets.h`:
 
 ```cpp
 const char *ssid = "...";
 const char *password = "...";
 ```
 
-## Architecture
+## Firmware architecture
 
-Single translation unit, `src/main.cpp`, in classic Arduino shape:
+Single translation unit, `firmware/src/main.cpp`, in classic Arduino shape:
 
 - **`setup()`** — pin config, plays the `bootup` RTTTL tune, configures stepper speeds/accelerations, then homes tilt against the endstop (`TILT_CALIBRATION`): drive tilt negative until `ENDSTOP_PIN` reads high, then `setCurrentPosition(0)`. All tilt positions afterwards are steps relative to that home. Plays `ready` when done.
 - **`onConnectionEstablished()`** — the EspMQTTClient callback where every subscription is registered. This is the whole command surface; add new commands here.
@@ -65,6 +71,24 @@ Broker `mqtt.jserrats.xyz:1883`, client id `sgmk2`. Retained LWT on `sgmk2/statu
 | `sgmk2/alert` | any | play the alert tune on the buzzer |
 
 Payload convention: only the exact string `on` enables; every other payload is treated as off.
+
+## CV app (`cv/`)
+
+`sgmk2-cv.py` is the Flask/socket.io app, `sgmk2.py` wraps the MQTT client, `input_shaping.py` turns the raw stick into steps/s (pure functions). The browser sends gamepad state over socket.io (`static/gamepad.js`).
+
+- **`motion_sender()` is the only publisher of `*/velocity`.** It runs on its own thread at `SEND_HZ`, arbitrates stick vs. autoaim (the stick always wins), publishes on change plus a keepalive inside the firmware's `VEL_TIMEOUT_MS`. Socket handlers and the frame loop only record state — keep detection time out of the control path.
+- **Autoaim** steers proportionally toward the largest face (`AIM_KP_*`, `AIM_DEADBAND_PX`). A socket disconnect zeroes the stick and disengages autoaim.
+- **Config from env**, defaults = the home setup: `MQTT_BROKER`, `MQTT_PORT`, `MQTT_CLIENT_ID`, `CAMERA_URL`, `PORT`, `SECRET_KEY` (random if unset).
+- **SIGTERM/SIGINT fail-safe:** `shutdown()` zeroes inputs, then `SGMk2.safe_stop()` publishes `shoot off`, `flywheel off` and zero pan/tilt velocity before exiting. `sgmk2/shoot` has no firmware timeout, so any new way for the app to exit must go through this.
+- The face cascade comes from `cv2.data.haarcascades` (shipped in the wheel). The image is `python:3.10-slim` + `opencv-python-headless`, running as uid 1000.
+
+Check it with `python -m py_compile cv/*.py`; run it with `python cv/sgmk2-cv.py` (needs the deps from `cv/requirements.txt`).
+
+## Chart and CI
+
+- `chart/` is the Helm chart `sgmk2-cv`, deployed straight from the repo (not published). Fixed one replica + `Recreate` because the MQTT client id is fixed. Ingress is off by default — the UI has no auth and can fire the turret. Values reference and the ArgoCD Application snippet are in `chart/README.md`; the Application itself lives in the `cloud` repo and pins both `targetRevision` and `image.tag: sha-<commit>`.
+- `.github/workflows/cv-image.yml` builds `cv/` and pushes `ghcr.io/jserrats/sgmk2/cv` (`sha-<short>`, `latest` on `main`, semver on `v*` tags); PRs build without pushing.
+- `.github/workflows/lint-chart.yml` runs `helm lint --strict` and `helm template` with the default values and `chart/ci/all-features-values.yaml`. Add any new optional block to that file.
 
 ## Hardware pin map
 
