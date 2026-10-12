@@ -1,0 +1,19 @@
+{{- if .Values.ingress.enabled }}
+The UI is served at:
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else }}
+Reach the UI with a port-forward, then open http://127.0.0.1:5000/ :
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "sgmk2-cv.fullname" . }} 5000:{{ .Values.service.port }}
+{{- end }}
+
+This chart always runs a single replica with the Recreate strategy: the app uses a fixed
+MQTT client_id, so two pods would keep disconnecting each other from the broker. Expect a
+short gap in control during upgrades.
+
+The camera ({{ .Values.camera.url }}) must be reachable from inside the pod. If its
+name doesn't resolve, set hostAliases, dnsPolicy/dnsConfig, or hostNetwork in your values.
